@@ -1,0 +1,108 @@
+package com.it18zhang.java37.gof;
+
+		/**
+		 * 饿汉式
+		 */
+		public class GargageBoxLazy {
+			
+			private static GargageBoxLazy instance ;
+			
+			public static GargageBoxLazy getInstance(){
+				if(instance == null){
+					System.out.println("....");
+					synchronized (GargageBoxLazy.class) {
+						if(instance == null){
+							instance = new GargageBoxLazy();
+						}
+					}
+				}
+				return instance ;
+			}
+			
+			private GargageBoxLazy(){
+			}
+		}
+   
+   
+2.Factory
+		class MesssageFactory{
+			public static Message newMessage(){
+				...
+
+			}
+		}
+
+		new MessageFactory().newMessage();
+
+	3.装饰模式:
+		流
+		class A{
+			...
+
+			public void xx(){
+				..
+			}
+		}
+
+		class WrapedA extends A{
+			private A a ;
+
+			public WrapedA(A a){
+				this.a = a ;
+			}
+
+
+			public void xx(){
+				System.out.println(...);
+				a.xxx()
+				System.out.println(...);
+			}
+		}
+	4.Builder模式
+		Message m = new Message();
+		m.setA();
+		m.setB();
+		...
+		
+		class Message{
+			public Message setA(){
+				...
+				return this ;
+			}
+			..
+
+
+		}
+		//链式编程.
+		new Message().setA().setB().setC();
+		
+
+	5.适配器
+		class Button{
+			public void addButtonListener(MouseListener l){
+				this.l = l ;
+			}
+		}
+
+		new Button().addButtonListener(new MouseAdater(){
+			public void click(){
+				...
+			}
+		});
+
+		interface MouseListener{
+			public void click();
+			pulic void dbClick();
+			...
+		}
+
+		public abstract class MouseAdater implements MouseListener{
+			public void click(){}
+			pulic void dbClick(){}
+			...
+			;
+			;
+			;
+			;
+
+		}
