@@ -147,3 +147,21 @@ SQL> select
         男性          女       性别为空
 ---------- ---------- ----------
          3          2          0
+#######################################################################################################################         
+         
+ 用SQL语句统计一个表有多少列
+2014-03-05 23:28 4837人阅读 评论(0) 收藏 举报
+版权声明：本文为博主原创文章，未经博主允许不得转载。
+
+1.oracle数据库
+   select count( column_name )
+   from user_tab_columns
+   where table_name = '表名'; --表名为大写
+
+2.sqlserver数据库
+   select   count(syscolumns.name)
+   from   syscolumns   ,   sysobjects    
+   where   syscolumns.id   =   sysobjects.id  
+   and   sysobjects.name   =   '表名'         
+         
+         
