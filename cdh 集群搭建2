@@ -1,0 +1,599 @@
+CDH集群安装
+
+1 软硬件准备
+1.1 准备三个节点
+序号	主机名	内存	CPU	IP地址	角色
+1	cdh1	8G	8核心	192.168.5.78	cloudera-scm-server,mysql
+2	cdh2    	4G	8核心	192.168.5.79	cloudera-scm-agent
+3	cdh2	4G	8核心	192.168.5.80	cloudera-scm-agent
+1.2 软件版本信息
+OS：RedHat EL 6.5
+CDH： 5.6.0
+Java：1.7
+MySQL：5.6
+ 
+2 主机环境准备
+ 
+说明： 以下操作默认在节点1上面， 如果在节点2和节点3上操作会特别说明。
+ 
+2.1 搭建yum源
+（1）、挂载系统镜像
+[root@hadoop1 ~]# mount /dev/cdrom /mnt
+
+（2）、配置yum源
+编辑/etc/yum.repos.d/rhel-source.repo配置文件：
+[root@hadoop1 yum.repos.d]# cat rhel-source.repo
+[rhel-source]
+name=RedHat
+baseurl=file:///mnt
+enabled=1
+gpgcheck=0
+ 
+
+ 
+（3）、设置缓存和验证
+[root@hadoop1 yum.repos.d]# yum clean all
+[root@hadoop1 yum.repos.d]# yum makecache
+[root@hadoop1 yum.repos.d]# yum list | more
+ 
+
+ 
+（4）、安装上传工具rz和sz
+[root@hadoop1 yum.repos.d]# yum whatprovides \*rz
+[root@hadoop1 yum.repos.d]# yum install lrzsz-0.12.20-27.1.el6.x86_64 -y
+
+ 
+ 
+2.2 配置JDK
+（1）、卸载本机的Open JDK信息
+[root@hadoop1 ~]# java -version
+[root@hadoop1 ~]# rpm -qa | grep java
+[root@hadoop1 ~]# rpm -e --nodeps java-1.7.0-openjdk-1.7.0.45-2.4.3.3.el6.x86_64
+[root@hadoop1 ~]# rpm -e --nodeps java-1.6.0-openjdk-1.6.0.0-1.66.1.13.0.el6.x86_64
+[root@hadoop1 ~]# rpm -e --nodeps tzdata-java-2013g-1.el6.noarch
+ 
+
+ 
+（2）、上传JDK安装包并解压
+[root@hadoop1 java]# mkdir /usr/java
+[root@hadoop1 java]# tar -xzvf jdk-7u79-linux-x64.tar.gz -C /usr/java/
+[root@hadoop1 data]# cd /usr/java/
+[root@hadoop1 java]# mv jdk1.7.0_79 default
+ 
+
+ 
+注意： JDK一定要解压到/usr/java/default下面，即JAVA_HOME= /usr/java/default, 否则CDH的后续安装将会报错（通过日志发现必须指定到此目录，可能其他的CM版本不需要）。
+ 
+（3）、配置环境变量
+编辑/etc/profile， 加入如下内容：
+[root@hadoop1 default]# vim /etc/profile
+export JAVA_HOME=/usr/java/default
+export JRE_HOME=/usr/java/default/jre
+export CLASSPATH=.:$JAVA_HOME/lib/dt.jar:$JAVA_HOME/lib/tools.jar:$JRE_HOME/lib:$CLASSPATH
+export PATH=$JAVA_HOME/bin:$PATH
+ 
+ 
+使用环境变量配置马上生效：
+[root@hadoop1 default]# source /etc/profile
+
+ 
+（4）、将节点1的Java传到其他节点并配置环境变量
+    在节点2和节点3上分别新建目录/usr/java/default, 将节点1的目录/usr/java/default下的文件传到节点2和节点3的目录/usr/java/default：
+   
+[root@hadoop1 default]# scp -r /usr/java/default/* root@192.168.5.79:/usr/java/default/
+[root@hadoop1 default]# scp -r /usr/java/default/* root@192.168.5.80:/usr/java/default/
+
+ 
+配置环境变量：
+[root@hadoop2 default]# tail -4/etc/profile
+export JAVA_HOME=/usr/java/default
+export JRE_HOME=/usr/java/default/jre
+export CLASSPATH=.:$JAVA_HOME/lib/dt.jar:$JAVA_HOME/lib/tools.jar:$JRE_HOME/lib:$CLASSPATH
+export PATH=$JAVA_HOME/bin:$PATH
+（5）、验证
+
+ 
+2.3 修改主机名
+（1）、在所有节点修改配置文件/etc/sysconfig/network
+其中cdh1为主机名， 其他节点也修改为对应的主机名称。
+
+ 
+（2）、在所有节点的/etc/hosts加入域名解析
+[root@hadoop1 default]# cat /etc/hosts
+127.0.0.1 localhost localhost.localdomain localhost4 localhost4.localdomain4
+::1 localhost localhost.localdomain localhost6 localhost6.localdomain6
+192.168.5.78 cdh1
+192.168.5.79 cdh2
+192.168.5.80 cdh3
+然后每个节点主机执行：hostname 主机名，比如节点1执行：# hostname cdh1
+ 
+（3）、测试主机名是否正常解析
+
+ 
+2.4 配置SSH免密码认证
+在主信任机cloudera-scm-server(192.168.5.78)生成key， 并将key分发到各个节点。
+（1）、生成key
+[root@cdh1 ~]#/usr/bin/ssh-keygen -t rsa -N ""
+
+ 
+（2）、分发key到各个节点上
+
+
+# cat /root/.ssh/id_rsa.pub | ssh 192.168.5.78 'cat >> .ssh/authorized_keys'
+
+# cat /root/.ssh/id_rsa.pub | ssh 192.168.5.79 'cat >> .ssh/authorized_keys'
+
+# cat /root/.ssh/id_rsa.pub | ssh 192.168.5.80 'cat >> .ssh/authorized_keys'   (注意， 本机也要做免密码认证)
+
+
+
+
+
+ 
+（3）、验证免密码认证
+
+ 
+ 
+2.5 关闭防火墙
+在所有节点执行如下步骤：
+（1）、关闭iptables
+# service iptables stop
+# chkconfig iptables off
+# chkconfig --list | grep iptables
+
+ 
+（2）、关闭selinux
+# vim /etc/sysconfig/selinux
+# setenforce 0
+ 
+
+ 
+ 
+2.6 配置内核参数
+在所有节点执行如下步骤：
+（1）、在所有节点修改内核参数(涉及主机检查)：
+# echo 0 > /proc/sys/vm/swappiness
+# echo never > /sys/kernel/mm/redhat_transparent_hugepage/defrag
+ 
+以上参数，重启后可能会丢失。
+（2）、修改系统编码格式
+# vim /etc/sysconfig/i18n
+LANG="en_US.UTF-8"
+SYSFONT="latarcyrheb-sun16"
+ 
+
+ 
+ 
+2.7 配置NTP服务
+ 
+（1）、修改配置文件/etc/ntp.conf
+在cdh1加入如下配置：
+restrict 192.168.5.0 mask 255.255.255.0 nomodify notrap
+server 127.127.1.0# local clock
+fudge 127.127.1.0 stratum 10
+ 
+在cdh2和cdh3等其他节点加入如下配置：
+#server 0.rhel.pool.ntp.org iburst
+#server 1.rhel.pool.ntp.org iburst
+#server 2.rhel.pool.ntp.org iburst
+server 192.168.5.78
+restrict 192.168.5.78 nomodify notrap noquery
+ 
+（2）、启动服务，并同步时间
+cdh1：
+[root@cdh1 ~]# service ntpd restart
+[root@cdh1 ~]# ntpdate -u 0.rhel.pool.ntp.org
+16Feb14:13:39 ntpdate[32551]: step time server 85.199.214.101 offset -27310.823198 sec
+[root@cdh1 ~]# date
+2017年02月16日星期四14:13:41 CST
+ 
+cdh2、cdh3：
+# service ntpd restart
+# ntpdate -u 192.168.5.78
+ 
+
+
+ 
+ 
+3、编译安装MySQL
+Mysql的安装在节点1上
+也可以使用其他方式安装MySQL
+3.1 检查并卸载本机的MySQL
+# rpm -qa | grep mysql
+# yum -y remove mysql-libs-5.1.71-1.el6.x86_64
+
+ 
+3.2 配置用户、目录和环境
+（1）、添加用户
+[root@cdh1 ~]# useradd mysql
+
+ 
+（2）、创建目录并赋权
+创建目录：
+
+
+[root@cdh1 ~]# mkdir -p  /home/u01/my3306/data
+
+[root@cdh1 ~]# mkdir -p  /home/u01/my3306/log/iblog
+
+[root@cdh1 ~]# mkdir -p  /home/u01/my3306/log/binlog
+
+[root@cdh1 ~]# mkdir -p /home /u01/my3306/run
+
+[root@cdh1 ~]# mkdir -p  /home/u01/my3306/tmp
+
+
+
+
+ 
+设置权限：
+
+
+[root@cdh1 ~]# chown -R mysql:mysql  /home/u01/my3306/
+
+[root@cdh1 ~]# chmod -R 755/home/u01/my3306/
+
+
+
+
+ 
+（3）、配置环境变量
+在/etc/profile里面加入如下配置：
+export PATH=$PATH:/home/u01/my3306/bin
+
+ 
+（4）、安装cmake
+[root@cdh1 data]# yum install -y cmake gcc gcc-c++ ncurses-devel bison zlib libxml openssl libxml2 libxml2-devel openssl-devel
+
+ 
+3.3 安装MySQL
+（1）、上传并解压
+上传mysql通用的源码包到目录/home/data， 并解压到/home/u01目录。
+[root@cdh1 data]# tar -xzvf mysql-5.6.35.tar.gz -C /home/u01
+
+ 
+（2）、进入mysql的解压目录， 并执行如下的cmake命令
+cmake \
+-DCMAKE_INSTALL_PREFIX=/home/u01/my3306 \
+-DINSTALL_DATADIR=/home/u01/my3306/data \
+-DDEFAULT_CHARSET=utf8 \
+-DDEFAULT_COLLATION=utf8_general_ci \
+-DEXTRA_CHARSETS=all \
+-DWITH_SSL=yes \
+-DWITH_EMBEDDED_SERVER=1 \
+-DENABLED_LOCAL_INFILE=1 \
+-DWITH_MYISAM_STORAGE_ENGINE=1 \
+-DWITH_INNOBASE_STORAGE_ENGINE=1 \
+-DWITH_ARCHIVE_STORAGE_ENGINE=1 \
+-DWITH_BLACKHOLE_STORAGE_ENGINE=1 \
+-DWITH_FEDERATED_STORAGE_ENGINE=1 \
+-DWITH_PARTITION_STORAGE_ENGINE=1 \
+-DMYSQL_UNIX_ADDR=/home/u01/my3306/run/mysql.sock \
+-DMYSQL_TCP_PORT=3306 \
+-DENABLED_LOCAL_INFILE=1 \
+-DSYSCONFDIR=/etc \
+-DWITH_READLINE=on
+
+ 
+ 
+（3）、make操作
+# make
+
+ 
+（4）、make  install 操作
+# make install
+
+ 
+ 
+（5）、上传my.cnf
+    将附件my.cnf上传到目录/home/u01/my3306。
+
+ my.cnf的文件内容如下：
+[client]
+port=3306
+socket=/home/u01/my3306/mysql.sock
+[mysql]
+pid_file=/home/u01/my3306/run/mysqld.pid
+[mysqld]
+autocommit=1
+general_log=off
+explicit_defaults_for_timestamp=true
+# system
+basedir=/home/u01/my3306
+datadir=/home/u01/my3306/data
+max_allowed_packet=1g
+max_connections=3000
+max_user_connections=2800
+open_files_limit=65535
+pid_file=/home/u01/my3306/run/mysqld.pid
+port=3306
+server_id=101
+skip_name_resolve=ON
+socket=/home/u01/my3306/run/mysql.sock
+tmpdir=/home/u01/my3306/tmp
+#binlog
+log_bin=/home/u01/my3306/log/binlog/binlog
+binlog_cache_size=32768
+binlog_format=row
+expire_logs_days=7
+log_slave_updates=ON
+max_binlog_cache_size=2147483648
+max_binlog_size=524288000
+sync_binlog=100
+#logging
+log_error=/home/u01/my3306/log/error.log
+slow_query_log_file=/home/u01/my3306/log/slow.log
+log_queries_not_using_indexes=0
+slow_query_log=1
+log_slave_updates=ON
+log_slow_admin_statements=1
+long_query_time=1
+#relay
+relay_log=/home/u01/my3306/log/relaylog
+relay_log_index=/home/u01/my3306/log/relay.index
+relay_log_info_file=/home/u01/my3306/log/relay-log.info
+#slave
+slave_load_tmpdir=/home/u01/my3306/tmp
+slave_skip_errors=OFF
+#innodb
+innodb_data_home_dir=/home/u01/my3306/log/iblog
+innodb_log_group_home_dir=/home/u01/my3306/log/iblog
+innodb_adaptive_flushing=ON
+innodb_adaptive_hash_index=ON
+innodb_autoinc_lock_mode=1
+innodb_buffer_pool_instances=8
+#default
+innodb_change_buffering=inserts
+innodb_checksums=ON
+innodb_buffer_pool_size=128M
+innodb_data_file_path=ibdata1:32M;ibdata2:16M:autoextend
+innodb_doublewrite=ON
+innodb_file_format=Barracuda
+innodb_file_per_table=ON
+innodb_flush_log_at_trx_commit=1
+innodb_flush_method=O_DIRECT
+innodb_io_capacity=1000
+innodb_lock_wait_timeout=10
+innodb_log_buffer_size=67108864
+innodb_log_file_size=1048576000
+innodb_log_files_in_group=4
+innodb_max_dirty_pages_pct=60
+innodb_open_files=60000
+innodb_purge_threads=1
+innodb_read_io_threads=4
+innodb_stats_on_metadata=OFF
+innodb_support_xa=ON
+innodb_use_native_aio=OFF
+innodb_write_io_threads=10
+[mysqld_safe]
+datadir=/home/u01/my3306/data
+ 
+（6）、赋权
+[root@cdh1 home]# chown -R mysql:mysql ./u01/my3306
+
+ 
+（7）、初始化
+进入my3306的目录
+
+
+./scripts/mysql_install_db --defaults-file=/home//u01/my3306/my.cnf  --datadir=/home/u01/my3306/data --user=mysql
+
+
+
+
+
+ 
+
+
+（8）、启动服务
+[root@cdh1 my3306]# cd bin/
+[root@cdh1 bin]#./mysqld_safe --defaults-file=/home/u01/my3306/my.cnf --user=mysql &
+ 
+
+ 
+ 
+（8）、验证安装
+
+ 
+3.4 配置MySQL权限等
+ 
+（1）、设置密码
+[root@cdh1 bin]# mysqladmin -u root password 123456
+
+ 
+（2）、进入mysql
+
+ 
+（3）、设置权限
+mysql> grant all privileges on *.* to root@'localhost' identified by'123456'with grant option;
+mysql> grant all privileges on *.* to root@'127.0.0.1' identified by'123456'with grant option;
+mysql> grant all privileges on *.* to root@'%' identified by'123456'with grant option;
+mysql> flush privileges;
+
+ 
+（4）、验证权限
+
+ 
+ 
+
+4 安装Cloudera Manager
+以下操作是在节点1上，角色为cloudera-scm-server
+ 
+4.1 上传并解压cloudera-manager
+（1）、解压
+[root@cdh1 data]# tar xzvf cloudera-manager-el6-cm5.6.0_x86_64.tar.gz -C /opt/
+
+  
+（2）、将mysql的jar包复制到指定目录
+# cp mysql-connector-java-5.1.38-bin.jar /opt/cm-5.6.0/share/cmf/lib/
+
+ 
+4.2 修改配置文件的主机名
+[root@cdh1 data]# sed -i 's/server_host=localhost/server_host=cdh1/g'/opt/cm-5.6.0/etc/cloudera-scm-agent/config.ini
+
+  
+4.3 修复安装包bug(此BUG会导致在集群安装YARN时失败) 
+# vim /opt/cm-5.6.0/lib64/cmf/agent/src/cmf/util.py	--该文件第365行
+pipe = subprocess.Popen(['/bin/bash','-c',". %s; %s; env"%(path, command)],
+stdout=subprocess.PIPE, env=caller_env)
+改成
+pipe = subprocess.Popen(['/bin/bash','-c',". %s; %s; env | grep -v { | grep -v }"%(path, command)],
+stdout=subprocess.PIPE, env=caller_env)
+ 
+ 
+4.4 创建系统用户（在所有的节点）
+# useradd --system --home=/opt/cm-5.6.0/run/cloudera-scm-server --no-create-home --shell=/bin/false --comment "cloudera scm user" cloudera-scm
+
+ 
+4.5 配置MySQL数据库
+（1）、执行创建脚本
+[root@cdh1 data]#/opt/cm-5.6.0/share/cmf/schema/scm_prepare_database.sh mysql -h192.168.5.78-uroot -p123456 --scm-host 192.168.5.78 cm cm cm
+---参数说明----：
+        ./scm_prepare_database.sh mysql -h 172.18.134.172 -uroot -pro#zyuc --scm-host 172.18.134.133 cm cm cm
+    　　　　        （对应于：数据库类型、数据库服务器、用户名、密码、CMServer 所在节点…….）
+ 
+验证是否安装成功：
+[root@cdh1 data]# mysql -h192.168.5.78-uroot -p123456 -e "show databases;"
+ 
+
+ 
+（2）、创建相关配置
+[root@cdh1 data]# mysql -h192.168.5.78-uroot -p123456
+mysql> create database hive DEFAULT CHARSET utf8 COLLATE utf8_general_ci;
+mysql> create database amon DEFAULT CHARSET utf8 COLLATE utf8_general_ci;
+mysql> create database hue default charset utf8 collate utf8_general_ci;
+mysql> create database Oozie DEFAULT CHARSET utf8 COLLATE utf8_general_ci;
+mysql> grant all on *.* to 'root'@'%' identified by '123456';--授权server主机
+mysql> flush privileges;
+4.6 将cm复制到agent
+  将/home/opt/cm-5.6.0拷贝到所有cloudera-scm-agent服务器上（/home/opt）
+[root@cdh1 opt]# scp -r cm-5.6.0/ root@cdh2:/opt
+[root@cdh1 opt]# scp -r cm-5.6.0/ root@cdh3:/opt
+
+ 
+4.7 准备parcels安装包到/opt/cloudera/parcel-repo/
+# cp CDH-5.6.0-1.cdh5.6.0.p0.45-el6.parcel /opt/cloudera/parcel-repo/
+# cp CDH-5.6.0-1.cdh5.6.0.p0.45-el6.parcel.sha1 /opt/cloudera/parcel-repo/
+# cp manifest.json /opt/cloudera/parcel-repo/
+# cd /opt/cloudera/parcel-repo/
+# mv CDH-5.6.0-1.cdh5.6.0.p0.45-el6.parcel.sha1 CDH-5.6.0-1.cdh5.6.0.p0.45-el6.parcel.sha
+ 
+
+ 
+ 
+4.8 启动服务
+（1）、启动cloudera-scm-server节点的server和agent脚本
+# /opt/cm-5.6.0/etc/init.d/cloudera-scm-server start
+# /opt/cm-5.6.0/etc/init.d/cloudera-scm-agent start
+ 
+（2）启动所有cloudera-scm-agent客户端节点的agent脚本
+# /opt/cm-5.6.0/etc/init.d/cloudera-scm-agent start
+ 
+（3）确认cloudera-scm-server启动完成
+[root@cdh1 opt]# ps -ef | grep scm
+
+ 
+# netstat -tunlp|grep java
+
+ 
+ 
+5 在界面配置
+在浏览器打开管理页面：http://192.168.5.78:7180/
+5.1 同意License
+
+ 
+ 
+5.2 选择Cloudera Express版本
+ 
+5.3 软件列表信息， 继续
+
+ 
+5.4 选择安装的主机
+ 
+ 
+5.5 继续，Parcel从cdh1分发到其他节点
+ 
+5.6 检查主机正确性 
+ 
+
+ 
+ 
+ 
+
+ 
+ 
+
+ 
+ 
+ 
+5.7 选择需要安装的服务
+
+ 
+5.8 集群设置
+
+ 
+ 
+ 
+ 
+5.9 设置数据库的信息
+
+ 
+5.10 集群设置
+设置DataNode的数据目录， 数据目录需要在磁盘新建好，如下图，需要新建2个目录：# mkdir  /home/dfsdata和# mkdir  /hadoopdata。
+
+ 
+ 
+5.11 配置和启动服务
+ 
+     Hive和Oozie报错， 提示没有mysql的java驱动jar包
+ 
+
+ 
+ 
+ 
+注意：将mysql的驱动放到hive和oozie的目录下面， 否则后面安装会报错：
+[root@cdh1 lib]# cp /home/data/mysql-connector-java-5.1.38-bin.jar /opt/cloudera/parcels/CDH-5.6.0-1.cdh5.6.0.p0.45/lib/hive/lib
+[root@cdh1 lib]# cp /home/data/mysql-connector-java-5.1.38-bin.jar /var/lib/oozie
+ 
+
+ 
+
+ 
+ 
+
+ 
+5.12 安装结束
+以上都没有报错， 按继续， 安装成功。
+ 
+
+ 
+由于是在虚拟机环境， 以上红色是空间不足的告警， 暂时可以忽略。 
+ 
+6 验证
+6.1 验证HDFS的功能
+
+ 
+6.2 验证Spark引擎
+切换到HDFS用户：# su -hdfs
+
+ 
+6.3 验证MR引擎
+切换到HDFS用户：# su -hdfs
+
+ 
+ 
+6.4 验证Hive on Spark
+ 
+
+ 
+hive on spark的设置文档：
+https://www.cloudera.com/documentation/enterprise/5-6-x/topics/admin_hos_config.html#hos_config
+ 
+参考文档设置没有成功， 直接修改配置文件：
+
+ 
+补充：上面通过在界面修改没有成功， 其实是修改保存后， 还有个deploy的操作， 如下图所示：
+
+ 
+
+ 
